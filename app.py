@@ -8,7 +8,7 @@ import streamlit as st
 # =====================================================================
 # TVŮJ ODKAZ NA GOOGLE TABULKU:
 # =====================================================================
-URL_TVOJE_TABULKY = "SEM_VLOZ_ODKAZ_NA_TABULKU"
+URL_TVOJE_TABULKY = "https://docs.google.com/spreadsheets/d/1r2IVopVO7eS5hBs96fGUKek8n5gKz4H21zplz8g9obk/edit?gid=0#gid=0"
 
 st.set_page_config(
     page_title="DIY Meteostanice",
