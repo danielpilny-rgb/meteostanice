@@ -8,7 +8,7 @@ import streamlit as st
 # =====================================================================
 # TVŮJ ODKAZ NA GOOGLE TABULKU:
 # =====================================================================
-URL_TVOJE_TABULKY = "https://docs.google.com/spreadsheets/d/1r2IVopVO7eS5hBs96fGUKek8n5gKz4H21zplz8g9obk/edit?gid=0#gid=0"  # tvůj odkaz
+URL_TVOJE_TABULKY = "https://docs.google.com/spreadsheets/d/1r2IVopVO7eS5hBs96fGUKek8n5gKz4H21zplz8g9obk/edit?gid=0#gid=0"
 
 st.set_page_config(
     page_title="DIY Meteostanice",
@@ -62,10 +62,14 @@ def load_data(url: str):
 
     df = df.sort_values("cas").reset_index(drop=True)
 
-    # Ošetření výpadků venkovních senzorů (nuly nahradíme předchozí hodnotou)
+    # Ošetření výpadků (nahrazení nul předchozí hodnotou)
     df["press_out"] = df["press_out"].replace(0, None).ffill()
     df["hum_out"] = df["hum_out"].replace(0, None).ffill()
     df["temp_out"] = df["temp_out"].replace(0, None).ffill()
+
+    # DŮLEŽITÉ: Znovu striktně donutíme sloupce být čísly (float), aby fungovalo zaokrouhlování
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
     df["mesic"] = df["cas"].dt.strftime("%Y-%m")
     df["den"] = df["cas"].dt.strftime("%Y-%m-%d")
@@ -88,9 +92,9 @@ try:
     df = load_data(URL_TVOJE_TABULKY)
     posledni = df.iloc[-1]
     st.sidebar.success(f"Poslední měření:\n{posledni['cas'].strftime('%d.%m.%Y %H:%M')}")
-    st.sidebar.metric("Poslední teplota uvnitř", f"{posledni['temp_in']} °C")
-    st.sidebar.metric("Poslední teplota venku", f"{posledni['temp_out']} °C")
-    st.sidebar.caption(f"Tlak: {posledni['press_in']} hPa | Vlhkost: {posledni['hum_in']}%")
+    st.sidebar.metric("Poslední teplota uvnitř", f"{posledni['temp_in']:.1f} °C")
+    st.sidebar.metric("Poslední teplota venku", f"{posledni['temp_out']:.1f} °C")
+    st.sidebar.caption(f"Tlak: {posledni['press_in']:.1f} hPa | Vlhkost: {posledni['hum_in']:.0f}%")
 except Exception as e:
     st.error(f"Chyba při načítání: {e}")
     st.stop()
@@ -103,7 +107,6 @@ if st.session_state.level == "mesice":
     st.title("📊 Přehled měsíců (Průměrné teploty)")
     st.caption("Klikni přímo do grafu na sloupec měsíce (nebo na tlačítko pod grafem) pro rozkliknutí dnů:")
 
-    # Spočítáme průměry za měsíce
     mesicni = df.groupby("mesic").agg({
         "temp_in": "mean",
         "temp_out": "mean",
@@ -111,24 +114,26 @@ if st.session_state.level == "mesice":
         "hum_out": "mean",
         "press_in": "mean",
         "press_out": "mean"
-    }).round(1).reset_index().sort_values("mesic")
+    }).reset_index().sort_values("mesic")
 
-    # Sloupcový graf měsíců
+    # Sloupcový graf měsíců s formátováním na 1 desetinné místo
     fig_m = go.Figure()
     fig_m.add_trace(go.Bar(
         x=mesicni["mesic"],
         y=mesicni["temp_in"],
         name="Uvnitř (°C)",
-        text=mesicni["temp_in"].apply(lambda x: f"{x} °C"),
+        text=[f"{float(x):.1f} °C" for x in mesicni["temp_in"]],
         textposition="auto",
+        hovertemplate="Uvnitř: <b>%{y:.1f} °C</b><extra></extra>",
         marker_color="#E64A19"
     ))
     fig_m.add_trace(go.Bar(
         x=mesicni["mesic"],
         y=mesicni["temp_out"],
         name="Venku (°C)",
-        text=mesicni["temp_out"].apply(lambda x: f"{x} °C"),
+        text=[f"{float(x):.1f} °C" for x in mesicni["temp_out"]],
         textposition="auto",
+        hovertemplate="Venku: <b>%{y:.1f} °C</b><extra></extra>",
         marker_color="#1976D2"
     ))
     fig_m.update_layout(
@@ -139,7 +144,6 @@ if st.session_state.level == "mesice":
         clickmode="event+select"
     )
 
-    # Zobrazení grafu s detekcí kliknutí
     event_m = st.plotly_chart(fig_m, use_container_width=True, on_select="rerun", key="chart_mesice")
     if event_m and event_m.get("selection") and event_m["selection"].get("points"):
         kliknuty_mesic = event_m["selection"]["points"][0]["x"]
@@ -148,7 +152,6 @@ if st.session_state.level == "mesice":
             st.session_state.level = "dny"
             st.rerun()
 
-    # Rychlá tlačítka pod grafem
     st.write("Nebo vyber měsíc tlačítkem:")
     btn_cols = st.columns(max(len(mesicni), 1))
     for i, m_val in enumerate(mesicni["mesic"]):
@@ -176,7 +179,6 @@ elif st.session_state.level == "dny":
 
     df_mesic = df[df["mesic"] == mesic]
 
-    # Spočítáme průměry za jednotlivé dny
     denni = df_mesic.groupby("den").agg({
         "temp_in": "mean",
         "temp_out": "mean",
@@ -184,24 +186,26 @@ elif st.session_state.level == "dny":
         "hum_out": "mean",
         "press_in": "mean",
         "press_out": "mean"
-    }).round(1).reset_index().sort_values("den")
+    }).reset_index().sort_values("den")
 
-    # Sloupcový graf dnů
+    # Sloupcový graf dnů s formátováním na 1 desetinné místo
     fig_d = go.Figure()
     fig_d.add_trace(go.Bar(
         x=denni["den"],
         y=denni["temp_in"],
         name="Uvnitř (°C)",
-        text=denni["temp_in"].apply(lambda x: f"{x}°"),
+        text=[f"{float(x):.1f}°" for x in denni["temp_in"]],
         textposition="auto",
+        hovertemplate="Uvnitř: <b>%{y:.1f} °C</b><extra></extra>",
         marker_color="#E64A19"
     ))
     fig_d.add_trace(go.Bar(
         x=denni["den"],
         y=denni["temp_out"],
         name="Venku (°C)",
-        text=denni["temp_out"].apply(lambda x: f"{x}°"),
+        text=[f"{float(x):.1f}°" for x in denni["temp_out"]],
         textposition="auto",
+        hovertemplate="Venku: <b>%{y:.1f} °C</b><extra></extra>",
         marker_color="#1976D2"
     ))
     fig_d.update_layout(
@@ -212,7 +216,6 @@ elif st.session_state.level == "dny":
         clickmode="event+select"
     )
 
-    # Zobrazení grafu s detekcí kliknutí
     event_d = st.plotly_chart(fig_d, use_container_width=True, on_select="rerun", key="chart_dny")
     if event_d and event_d.get("selection") and event_d["selection"].get("points"):
         kliknuty_den = event_d["selection"]["points"][0]["x"]
@@ -221,7 +224,6 @@ elif st.session_state.level == "dny":
             st.session_state.level = "detail"
             st.rerun()
 
-    # Rychlá tlačítka dnů pod grafem
     st.write("Nebo vyber den tlačítkem:")
     dny_seznam = denni["den"].tolist()
     dny_cols = st.columns(min(len(dny_seznam), 4))
@@ -249,7 +251,6 @@ elif st.session_state.level == "detail":
 
     den_data = df[df["den"] == den].sort_values("cas")
 
-    # Karty s metrikami
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     kpi1.metric("Teplota Uvnitř (průměr)", f"{den_data['temp_in'].mean():.1f} °C", f"max {den_data['temp_in'].max():.1f} °C")
     kpi2.metric("Teplota Venku (průměr)", f"{den_data['temp_out'].mean():.1f} °C", f"max {den_data['temp_out'].max():.1f} °C")
@@ -261,8 +262,22 @@ elif st.session_state.level == "detail":
     # 1. Průběh teplot
     st.subheader("🌡️ Průběh teploty v čase")
     fig_temp = go.Figure()
-    fig_temp.add_trace(go.Scatter(x=den_data["cas"], y=den_data["temp_in"], mode="lines+markers", name="Uvnitř (°C)", line=dict(color="#E64A19", width=2)))
-    fig_temp.add_trace(go.Scatter(x=den_data["cas"], y=den_data["temp_out"], mode="lines+markers", name="Venku (°C)", line=dict(color="#1976D2", width=2)))
+    fig_temp.add_trace(go.Scatter(
+        x=den_data["cas"],
+        y=den_data["temp_in"],
+        mode="lines+markers",
+        name="Uvnitř (°C)",
+        hovertemplate="Uvnitř: <b>%{y:.1f} °C</b><extra></extra>",
+        line=dict(color="#E64A19", width=2)
+    ))
+    fig_temp.add_trace(go.Scatter(
+        x=den_data["cas"],
+        y=den_data["temp_out"],
+        mode="lines+markers",
+        name="Venku (°C)",
+        hovertemplate="Venku: <b>%{y:.1f} °C</b><extra></extra>",
+        line=dict(color="#1976D2", width=2)
+    ))
     fig_temp.update_layout(xaxis_title="Čas", yaxis_title="Teplota (°C)", hovermode="x unified")
     st.plotly_chart(fig_temp, use_container_width=True)
 
@@ -271,15 +286,44 @@ elif st.session_state.level == "detail":
     with g_col1:
         st.subheader("💧 Průběh vlhkosti (%)")
         fig_hum = go.Figure()
-        fig_hum.add_trace(go.Scatter(x=den_data["cas"], y=den_data["hum_in"], mode="lines", name="Uvnitř (%)", line=dict(color="#00ACC1")))
-        fig_hum.add_trace(go.Scatter(x=den_data["cas"], y=den_data["hum_out"], mode="lines", name="Venku (%)", line=dict(color="#43A047")))
+        fig_hum.add_trace(go.Scatter(
+            x=den_data["cas"],
+            y=den_data["hum_in"],
+            mode="lines",
+            name="Uvnitř (%)",
+            hovertemplate="Uvnitř: <b>%{y:.0f} %</b><extra></extra>",
+            line=dict(color="#00ACC1")
+        ))
+        fig_hum.add_trace(go.Scatter(
+            x=den_data["cas"],
+            y=den_data["hum_out"],
+            mode="lines",
+            name="Venku (%)",
+            hovertemplate="Venku: <b>%{y:.0f} %</b><extra></extra>",
+            line=dict(color="#43A047")
+        ))
         fig_hum.update_layout(xaxis_title="Čas", yaxis_title="Vlhkost (%)", hovermode="x unified")
         st.plotly_chart(fig_hum, use_container_width=True)
 
     with g_col2:
         st.subheader("⏲️ Průběh tlaku (hPa)")
         fig_press = go.Figure()
-        fig_press.add_trace(go.Scatter(x=den_data["cas"], y=den_data["press_in"], mode="lines", name="Uvnitř (hPa)", line=dict(color="#FB8C00")))
-        fig_press.add_trace(go.Scatter(x=den_data["cas"], y=den_data["press_out"], mode="lines", name="Venku (hPa)", line=dict(color="#8E24AA")))
+        fig_press.add_trace(go.Scatter(
+            x=den_data["cas"],
+            y=den_data["press_in"],
+            mode="lines",
+            name="Uvnitř (hPa)",
+            hovertemplate="Uvnitř: <b>%{y:.1f} hPa</b><extra></extra>",
+            line=dict(color="#FB8C00")
+        ))
+        fig_press.add_trace(
+            go.Scatter(
+            x=den_data["cas"],
+            y=den_data["press_out"],
+            mode="lines",
+            name="Venku (hPa)",
+            hovertemplate="Venku: <b>%{y:.1f} hPa</b><extra></extra>",
+            line=dict(color="#8E24AA")
+        ))
         fig_press.update_layout(xaxis_title="Čas", yaxis_title="Tlak (hPa)", hovermode="x unified")
         st.plotly_chart(fig_press, use_container_width=True)
