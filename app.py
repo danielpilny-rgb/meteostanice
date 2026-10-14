@@ -24,7 +24,7 @@ def get_export_url(url: str) -> str:
 
     if match_id:
         sheet_id = match_id.group(1)
-        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
+        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
         if match_gid:
             csv_url += f"&gid={match_gid.group(1)}"
         return csv_url
@@ -232,16 +232,18 @@ if "Práce" in lokalita:
 
         st.divider()
 
+        # Teploty
         fig_temp = go.Figure()
         fig_temp.add_trace(go.Scatter(x=den_data["cas"], y=den_data["temp_in"], mode="lines+markers", name="Uvnitř (°C)", line=dict(color="#E64A19", width=2)))
         fig_temp.add_trace(go.Scatter(x=den_data["cas"], y=den_data["temp_out"], mode="lines+markers", name="Venku (°C)", line=dict(color="#1976D2", width=2)))
         fig_temp.update_layout(title="Průběh teploty v čase", xaxis_title="Čas", yaxis_title="Teplota (°C)", hovermode="x unified")
         st.plotly_chart(fig_temp, use_container_width=True)
 
+        # Vlhkost a tlak (🔥 OPRAVENO: hum_in místo hum 🔥)
         c1, c2 = st.columns(2)
         with c1:
             fig_hum = go.Figure()
-            fig_hum.add_trace(go.Scatter(x=den_data["cas"], y=den_data["hum"], name="Uvnitř (%)", line=dict(color="#00ACC1")))
+            fig_hum.add_trace(go.Scatter(x=den_data["cas"], y=den_data["hum_in"], name="Uvnitř (%)", line=dict(color="#00ACC1")))
             fig_hum.add_trace(go.Scatter(x=den_data["cas"], y=den_data["hum_out"], name="Venku (%)", line=dict(color="#43A047")))
             fig_hum.update_layout(title="Průběh vlhkosti (%)", xaxis_title="Čas", yaxis_title="Vlhkost (%)", hovermode="x unified")
             st.plotly_chart(fig_hum, use_container_width=True)
@@ -254,7 +256,7 @@ if "Práce" in lokalita:
 
 
 # =====================================================================
-# ZOBRAZENÍ: 🏡 DOMOV (HOLASICKÁ 6 - PŘESNÝ ODKAZ)
+# ZOBRAZENÍ: 🏡 DOMOV (HOLASICKÁ 6)
 # =====================================================================
 else:
     if st.session_state.level == "mesice":
