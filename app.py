@@ -9,7 +9,7 @@ import streamlit as st
 # ODKAZY NA OBĚ GOOGLE TABULKY:
 # =====================================================================
 URL_PRACE = "https://docs.google.com/spreadsheets/d/1r2IVopVO7eS5hBs96fGUKek8n5gKz4H21zplz8g9obk/edit?gid=0#gid=0"
-URL_DOMOV = "https://docs.google.com/spreadsheets/d/1yJ8zTFR75XgCIWvaqhuH13XLEcsBhtVqQWSql5mbgw/edit?gid=0#gid=0"
+URL_DOMOV = "https://docs.google.com/spreadsheets/d/1yJ8zTFR75XgCIWvaqhuH13XLEcsBhtVqQWsSql5mbgw/edit?gid=0#gid=0"
 
 st.set_page_config(
     page_title="Meteostanice Opava",
@@ -17,7 +17,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# 🔥 NEPRŮSTŘELNÝ GVIZ ENDPOINT (Google ho neblokuje přihlašovací stránkou) 🔥
+
 def get_export_url(url: str) -> str:
     match_id = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
     match_gid = re.search(r"[#&?]gid=([0-9]+)", url)
@@ -254,7 +254,7 @@ if "Práce" in lokalita:
 
 
 # =====================================================================
-# ZOBRAZENÍ: 🏡 DOMOV (HOLASICKÁ 6)
+# ZOBRAZENÍ: 🏡 DOMOV (HOLASICKÁ 6 - PŘESNÝ ODKAZ)
 # =====================================================================
 else:
     if st.session_state.level == "mesice":
