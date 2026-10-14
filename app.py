@@ -73,7 +73,7 @@ def load_data_prace(url: str):
 
 
 # =====================================================================
-# NAČÍTÁNÍ DAT - DOMOV (6 sloupců)
+# NAČÍTÁNÍ DAT - DOMOV (Univerzální načtení data a času)
 # =====================================================================
 @st.cache_data(ttl=120)
 def load_data_domov(url: str):
@@ -85,12 +85,14 @@ def load_data_domov(url: str):
     df = pd.read_csv(StringIO(res.text), header=0, sep=None, engine="python")
     df = df.dropna(how="all", axis=1)
 
-    # Očekáváme sloupce: Datum, Čas, Teplota (°C), Vlhkost (%), Tlak (hPa), Počasí
     df.columns = ["datum_raw", "cas_raw", "temp", "hum", "press", "pocasi"]
 
-    # Zpracování data a času (např. "pondělí 12.10.26" a "13:51")
-    df["datum_ciste"] = df["datum_raw"].astype(str).apply(lambda x: x.split(" ")[-1] if " " in x else x)
-    df["cas"] = pd.to_datetime(df["datum_ciste"] + " " + df["cas_raw"].astype(str), format="%d.%m.%y %H:%M", errors="coerce")
+    # Očištění data od dne v týdnu (např. "středa 14.10.26" -> "14.10.26")
+    df["datum_ciste"] = df["datum_raw"].astype(str).str.strip().apply(lambda x: x.split(" ")[-1] if " " in x else x)
+    df["cas_cisty"] = df["cas_raw"].astype(str).str.strip()
+
+    # 🔥 UNIVERZÁLNÍ PŘEVOD: Zvládne čas se sekundami i bez nich, den na začátku 🔥
+    df["cas"] = pd.to_datetime(df["datum_ciste"] + " " + df["cas_cisty"], dayfirst=True, errors="coerce")
     df = df.dropna(subset=["cas"])
 
     numeric_cols = ["temp", "hum", "press"]
@@ -118,7 +120,6 @@ if st.sidebar.button("🔄 Zkontrolovat nová data"):
     st.cache_data.clear()
     st.rerun()
 
-# Načtení příslušných dat podle výběru
 try:
     if "Práce" in lokalita:
         df = load_data_prace(URL_PRACE)
@@ -144,7 +145,6 @@ except Exception as e:
 # =====================================================================
 if "Práce" in lokalita:
 
-    # 1. Úroveň: Měsíce
     if st.session_state.level == "mesice":
         st.title("🏢 Práce (Jaktař) - Přehled měsíců")
         st.caption("Klikni na sloupec měsíce v grafu nebo ho vyber níže pro detail dnů:")
@@ -172,14 +172,12 @@ if "Práce" in lokalita:
                 st.session_state.level = "dny"
                 st.rerun()
 
-        # Vylepšený responzivní výběr pro mobily
-        vybrany_m = st.selectbox("📅 Nebo vyber měsíc ze seznamu:", ["-- Vyber měsíc --"] + mesicni["mesic"].tolist())
+        vybrany_m = st.selectbox("📅 Vyber měsíc ze seznamu:", ["-- Vyber měsíc --"] + mesicni["mesic"].tolist())
         if vybrany_m != "-- Vyber měsíc --":
             st.session_state.vybrany_mesic = vybrany_m
             st.session_state.level = "dny"
             st.rerun()
 
-    # 2. Úroveň: Dny v měsíci
     elif st.session_state.level == "dny":
         mesic = st.session_state.vybrany_mesic
         if st.button("⬅️ Zpět na přehled měsíců"):
@@ -209,14 +207,12 @@ if "Práce" in lokalita:
                 st.session_state.level = "detail"
                 st.rerun()
 
-        # 🔥 OPRAVA PRO MOBILY: Čistý výběr dne ze seznamu namísto rozsypaných tlačítek! 🔥
         vybrany_d = st.selectbox("📆 Vyber konkrétní den pro detailní průběh:", ["-- Vyber den --"] + denni["den"].tolist())
         if vybrany_d != "-- Vyber den --":
             st.session_state.vybrany_den = vybrany_d
             st.session_state.level = "detail"
             st.rerun()
 
-    # 3. Úroveň: Detail vybraného dne
     elif st.session_state.level == "detail":
         den = st.session_state.vybrany_den
         if st.button("⬅️ Zpět na dny"):
@@ -234,14 +230,12 @@ if "Práce" in lokalita:
 
         st.divider()
 
-        # Teploty
         fig_temp = go.Figure()
         fig_temp.add_trace(go.Scatter(x=den_data["cas"], y=den_data["temp_in"], mode="lines+markers", name="Uvnitř (°C)", line=dict(color="#E64A19", width=2)))
         fig_temp.add_trace(go.Scatter(x=den_data["cas"], y=den_data["temp_out"], mode="lines+markers", name="Venku (°C)", line=dict(color="#1976D2", width=2)))
         fig_temp.update_layout(title="Průběh teploty v čase", xaxis_title="Čas", yaxis_title="Teplota (°C)", hovermode="x unified")
         st.plotly_chart(fig_temp, use_container_width=True)
 
-        # Vlhkost a tlak
         c1, c2 = st.columns(2)
         with c1:
             fig_hum = go.Figure()
@@ -261,7 +255,6 @@ if "Práce" in lokalita:
 # ZOBRAZENÍ: 🏡 DOMOV (HOLASICKÁ 6)
 # =====================================================================
 else:
-    # 1. Úroveň: Měsíce
     if st.session_state.level == "mesice":
         st.title("🏡 Domov (Holasická 6) - Přehled měsíců")
         st.caption("Klikni na sloupec měsíce v grafu nebo ho vyber níže pro detail dnů:")
@@ -289,7 +282,6 @@ else:
             st.session_state.level = "dny"
             st.rerun()
 
-    # 2. Úroveň: Dny v měsíci
     elif st.session_state.level == "dny":
         mesic = st.session_state.vybrany_mesic
         if st.button("⬅️ Zpět na přehled měsíců"):
@@ -321,7 +313,6 @@ else:
             st.session_state.level = "detail"
             st.rerun()
 
-    # 3. Úroveň: Detail dne pro domov
     elif st.session_state.level == "detail":
         den = st.session_state.vybrany_den
         if st.button("⬅️ Zpět na dny"):
@@ -338,7 +329,6 @@ else:
 
         st.divider()
 
-        # Graf teploty doma
         fig_temp = go.Figure()
         fig_temp.add_trace(go.Scatter(
             x=den_data["cas"], y=den_data["temp"],
@@ -350,7 +340,6 @@ else:
         fig_temp.update_layout(title="Průběh teploty na Holasické", xaxis_title="Čas", yaxis_title="Teplota (°C)", hovermode="x unified")
         st.plotly_chart(fig_temp, use_container_width=True)
 
-        # Vlhkost a tlak
         c1, c2 = st.columns(2)
         with c1:
             fig_hum = go.Figure()
