@@ -6,10 +6,10 @@ import requests
 import streamlit as st
 
 # =====================================================================
-# ODKAZY NA OBĚ GOOGLE TABULKY:
+# ODKAZY NA OBĚ GOOGLE TABULKY (OPRAVENO NA TVOU AKTUÁLNÍ NOVOU TABULKU):
 # =====================================================================
 URL_PRACE = "https://docs.google.com/spreadsheets/d/1r2IVopVO7eS5hBs96fGUKek8n5gKz4H21zplz8g9obk/edit?gid=0#gid=0"
-URL_DOMOV = "https://docs.google.com/spreadsheets/d/1wOhPxOUgQkMCCiKFYEV6WzL6tB9DRj32MemWy-N9h_U/edit?gid=0#gid=0"
+URL_DOMOV = "https://docs.google.com/spreadsheets/d/1yJ8zTFR75XgCIWvaqhuH13XLEcsBhtVqQWSql5mbgw/edit?gid=0#gid=0"
 
 st.set_page_config(
     page_title="Meteostanice Opava",
@@ -80,18 +80,16 @@ def load_data_domov(url: str):
     csv_url = get_export_url(url)
     res = requests.get(csv_url)
     if res.status_code != 200 or "<html" in res.text.lower():
-        raise ValueError("Chyba při stahování tabulky domova. Zkontroluj sdílení.")
+        raise ValueError("Chyba při stahování tabulky domova. Ujisti se, že v tabulce 'počasi holasická' máš nastaveno Sdílet -> Kdokoli s odkazem má roli Čtenář.")
 
     df = pd.read_csv(StringIO(res.text), header=0, sep=None, engine="python")
     df = df.dropna(how="all", axis=1)
 
     df.columns = ["datum_raw", "cas_raw", "temp", "hum", "press", "pocasi"]
 
-    # Očištění data od dne v týdnu (např. "středa 14.10.26" -> "14.10.26")
     df["datum_ciste"] = df["datum_raw"].astype(str).str.strip().apply(lambda x: x.split(" ")[-1] if " " in x else x)
     df["cas_cisty"] = df["cas_raw"].astype(str).str.strip()
 
-    # 🔥 UNIVERZÁLNÍ PŘEVOD: Zvládne čas se sekundami i bez nich, den na začátku 🔥
     df["cas"] = pd.to_datetime(df["datum_ciste"] + " " + df["cas_cisty"], dayfirst=True, errors="coerce")
     df = df.dropna(subset=["cas"])
 
@@ -252,7 +250,7 @@ if "Práce" in lokalita:
 
 
 # =====================================================================
-# ZOBRAZENÍ: 🏡 DOMOV (HOLASICKÁ 6)
+# ZOBRAZENÍ: 🏡 DOMOV (HOLASICKÁ 6 - AKTUÁLNÍ NOVÁ TABULKA)
 # =====================================================================
 else:
     if st.session_state.level == "mesice":
