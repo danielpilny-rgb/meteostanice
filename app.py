@@ -6,7 +6,7 @@ import requests
 import streamlit as st
 
 # =====================================================================
-# ODKAZY NA OBĚ GOOGLE TABULKY (OPRAVENO NA TVOU AKTUÁLNÍ NOVOU TABULKU):
+# ODKAZY NA OBĚ GOOGLE TABULKY:
 # =====================================================================
 URL_PRACE = "https://docs.google.com/spreadsheets/d/1r2IVopVO7eS5hBs96fGUKek8n5gKz4H21zplz8g9obk/edit?gid=0#gid=0"
 URL_DOMOV = "https://docs.google.com/spreadsheets/d/1yJ8zTFR75XgCIWvaqhuH13XLEcsBhtVqQWSql5mbgw/edit?gid=0#gid=0"
@@ -17,14 +17,14 @@ st.set_page_config(
     layout="wide",
 )
 
-
+# 🔥 NEPRŮSTŘELNÝ GVIZ ENDPOINT (Google ho neblokuje přihlašovací stránkou) 🔥
 def get_export_url(url: str) -> str:
     match_id = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
     match_gid = re.search(r"[#&?]gid=([0-9]+)", url)
 
     if match_id:
         sheet_id = match_id.group(1)
-        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
         if match_gid:
             csv_url += f"&gid={match_gid.group(1)}"
         return csv_url
@@ -32,12 +32,14 @@ def get_export_url(url: str) -> str:
 
 
 # =====================================================================
-# NAČÍTÁNÍ DAT - PRÁCE (7 sloupců)
+# NAČÍTÁNÍ DAT - PRÁCE
 # =====================================================================
 @st.cache_data(ttl=120)
 def load_data_prace(url: str):
     csv_url = get_export_url(url)
-    res = requests.get(csv_url)
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    res = requests.get(csv_url, headers=headers)
+    
     if res.status_code != 200 or "<html" in res.text.lower():
         raise ValueError("Chyba při stahování tabulky z práce. Zkontroluj sdílení.")
 
@@ -73,14 +75,16 @@ def load_data_prace(url: str):
 
 
 # =====================================================================
-# NAČÍTÁNÍ DAT - DOMOV (Univerzální načtení data a času)
+# NAČÍTÁNÍ DAT - DOMOV
 # =====================================================================
 @st.cache_data(ttl=120)
 def load_data_domov(url: str):
     csv_url = get_export_url(url)
-    res = requests.get(csv_url)
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    res = requests.get(csv_url, headers=headers)
+    
     if res.status_code != 200 or "<html" in res.text.lower():
-        raise ValueError("Chyba při stahování tabulky domova. Ujisti se, že v tabulce 'počasi holasická' máš nastaveno Sdílet -> Kdokoli s odkazem má roli Čtenář.")
+        raise ValueError("Chyba při stahování tabulky domova.")
 
     df = pd.read_csv(StringIO(res.text), header=0, sep=None, engine="python")
     df = df.dropna(how="all", axis=1)
@@ -237,7 +241,7 @@ if "Práce" in lokalita:
         c1, c2 = st.columns(2)
         with c1:
             fig_hum = go.Figure()
-            fig_hum.add_trace(go.Scatter(x=den_data["cas"], y=den_data["hum_in"], name="Uvnitř (%)", line=dict(color="#00ACC1")))
+            fig_hum.add_trace(go.Scatter(x=den_data["cas"], y=den_data["hum"], name="Uvnitř (%)", line=dict(color="#00ACC1")))
             fig_hum.add_trace(go.Scatter(x=den_data["cas"], y=den_data["hum_out"], name="Venku (%)", line=dict(color="#43A047")))
             fig_hum.update_layout(title="Průběh vlhkosti (%)", xaxis_title="Čas", yaxis_title="Vlhkost (%)", hovermode="x unified")
             st.plotly_chart(fig_hum, use_container_width=True)
@@ -250,7 +254,7 @@ if "Práce" in lokalita:
 
 
 # =====================================================================
-# ZOBRAZENÍ: 🏡 DOMOV (HOLASICKÁ 6 - AKTUÁLNÍ NOVÁ TABULKA)
+# ZOBRAZENÍ: 🏡 DOMOV (HOLASICKÁ 6)
 # =====================================================================
 else:
     if st.session_state.level == "mesice":
