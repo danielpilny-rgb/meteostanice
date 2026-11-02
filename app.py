@@ -11,7 +11,7 @@ import streamlit as st
 # =================================================================
 URL_PRACE   = "https://docs.google.com/spreadsheets/d/1r2IVopVO7eS5hBs96fGUKek8n5gKz4H21zplz8g9obk/edit?gid=0#gid=0"
 URL_DOMOV   = "https://docs.google.com/spreadsheets/d/1yJ8zTFR75XgCIWvaqhuH13XLEcsBhtVqQWsSql5mbgw/edit?gid=0#gid=0"
-# 👇 SEM VLOŽ ODKAZ NA SVOU 3. TABULKU S LETADLY (mezi uvozovky):
+# 👇 SEM VLOŽ ODKAZ NA SVOU TABULKU S LETADLY (mezi uvozovky):
 URL_LETADLA = "https://docs.google.com/spreadsheets/d/14ZaRb5FNlVZkkkV0TYVH0tJpFO9GjvJLeSm5kSN43Gk/edit?gid=0#gid=0" 
 
 st.set_page_config(page_title="Meteo & Radar Opava", page_icon="🌤️", layout="wide")
@@ -62,9 +62,43 @@ def load_data_domov(url: str):
     return df
 
 # =================================================================
-# 3. NAČÍTÁNÍ A CHYTRÁ ANALÝZA LETADEL
+# 3. DATABÁZE AEROLINEK A ANALÝZA LETADEL
 # =================================================================
-# Známá letiště pro výpočet odchylky od Opavy (cca 49.94° N, 17.91° E)
+AIRLINES = {
+    "RYR": "Ryanair 🟡", "RYS": "Buzz (Ryanair) 🟡",
+    "WZZ": "Wizz Air 🟣", "WMT": "Wizz Air Malta 🟣", "WUK": "Wizz Air UK 🟣",
+    "DLH": "Lufthansa 🇩🇪", "LOT": "LOT Polish Airlines 🇵🇱",
+    "ENT": "Enter Air 🇵🇱", "THY": "Turkish Airlines 🇹🇷",
+    "ASL": "Air Serbia 🇷🇸", "VKG": "Sunclass Airlines ☀️",
+    "BTI": "airBaltic 🇱🇻", "SCT": "Smartwings / Charter 🇨🇿",
+    "BLX": "TUIfly Nordic ✈️", "EWG": "Eurowings 🇩🇪",
+    "EJU": "easyJet Europe 🟠", "EZY": "easyJet 🟠",
+    "FIN": "Finnair 🇫🇮", "AEE": "Aegean Airlines 🇬🇷",
+    "PGT": "Pegasus Airlines 🇹🇷", "SDR": "Sundair 🇩🇪",
+    "SAS": "Scandinavian Airlines (SAS) 🇸🇪", "QTR": "Qatar Airways 🇶🇦",
+    "NOZ": "Norwegian 🇳🇴", "NAX": "Norwegian 🇳🇴",
+    "MFX": "Air Pink (VIP Jet) 🛩️", "AUA": "Austrian Airlines 🇦🇹",
+    "BAW": "British Airways 🇬🇧", "KLM": "KLM Royal Dutch 🇳🇱",
+    "AFR": "Air France 🇫🇷", "UAE": "Emirates 🇦🇪",
+    "TVS": "Smartwings 🇨🇿", "CSA": "ČSA 🇨🇿"
+}
+
+def urci_aerolinku(callsign):
+    callsign = str(callsign).strip().upper()
+    if callsign.startswith("ID:"):
+        return "Neznámý / Armáda 🪖"
+    if callsign.startswith("OK"):
+        return "Soukromý let (ČR) 🇨🇿"
+    if callsign.startswith("SP"):
+        return "Soukromý let (Polsko) 🇵🇱"
+    if callsign.startswith("OE"):
+        return "Soukromý let (Rakousko) 🇦🇹"
+    if callsign.startswith("D-"):
+        return "Soukromý let (Německo) 🇩🇪"
+    
+    prefix = callsign[:3]
+    return AIRLINES.get(prefix, "Ostatní / Charter ✈️")
+
 AIRPORTS = {
     "verona": (45.39, 10.88), "palermo": (38.17, 13.09), "rome": (41.80, 12.23), "milan": (45.63, 8.72),
     "warsaw": (52.16, 20.96), "krakow": (50.07, 19.78), "gdańsk": (54.37, 18.46), "gdansk": (54.37, 18.46),
@@ -87,15 +121,11 @@ def analyzuj_let(row):
     model = str(row["model"]).strip()
     vyska = row["vyska"]
     
-    # 1. Test na vojenský / neznámý let
     if callsign.startswith("ID:") or trasa == "---" or trasa == "":
         return "🟡 INFO: Bez letového plánu (Vojenský / Vládní)"
-    
-    # 2. Test na neznámý typ letadla
     if model.lower() == "neznamy" or model == "":
         return "🟡 INFO: Neznámý typ letounu"
 
-    # 3. Test na podezřelou trasu (např. Verona -> Palermo u Opavy)
     if "->" in trasa:
         parts = trasa.split("->")
         orig = parts[0].strip().lower()
@@ -105,11 +135,9 @@ def analyzuj_let(row):
             d_lat, d_lon = AIRPORTS[dest]
             d_direct = geo_dist(o_lat, o_lon, d_lat, d_lon)
             d_via_opava = geo_dist(o_lat, o_lon, 49.94, 17.91) + geo_dist(49.94, 17.91, d_lat, d_lon)
-            # Pokud je oklika přes Opavu o víc než 40 % delší a současně aspoň o 300 km mimo
             if d_via_opava > (d_direct * 1.40) and (d_via_opava - d_direct > 300):
                 return "🔴 POZOR: Poloha letadla neodpovídá trase!"
 
-    # 4. Test na nízký průlet (přiblížení na letiště Mošnov / Katowice)
     if vyska < 3500 and vyska > 0:
         return "🔵 INFO: Nízký průlet / Přiblížení"
 
@@ -121,15 +149,12 @@ def load_data_letadla(url: str):
     df = pd.read_csv(StringIO(res.text), header=0, sep=None, engine="python").dropna(how="all", axis=1)
     df.columns = ["datum", "cas", "linka", "trasa", "model", "vzdalenost", "vyska", "rychlost"]
     
-    # Úklid čísel s desetinnou čárkou
     df["vzdalenost"] = pd.to_numeric(df["vzdalenost"].astype(str).str.replace(",", ".").str.strip(), errors="coerce")
     df["vyska"]       = pd.to_numeric(df["vyska"].astype(str).str.replace(",", ".").str.strip(), errors="coerce").fillna(0)
     df["rychlost"]    = pd.to_numeric(df["rychlost"].astype(str).str.replace(",", ".").str.strip(), errors="coerce").fillna(0)
     
-    # Odstranění bezprostředních duplikátů (pojistka)
     df = df.drop_duplicates(subset=["datum", "linka", "vzdalenost"], keep="first")
-    
-    # Analýza a přidání statusu
+    df["aerolinka"] = df["linka"].apply(urci_aerolinku)
     df["status"] = df.apply(analyzuj_let, axis=1)
     return df
 
@@ -253,7 +278,7 @@ if "Počasí" in modul:
             st.plotly_chart(fig_temp, use_container_width=True)
 
 # =================================================================
-# MODUL 3: LETECKÝ RADAR (NOVÉ!)
+# MODUL 3: LETECKÝ RADAR (S PROVOZOVATELI)
 # =================================================================
 else:
     st.title("✈️ Letecký radar (Vzdušný prostor Opava)")
@@ -282,16 +307,16 @@ else:
 
     st.divider()
 
-    # 2. Vytahovák na anomálie (Karty nahoru)
+    # 2. Vytahovák na anomálie
     anomalie = df_den[df_den["status"].str.contains("POZOR")]
     if len(anomalie) > 0:
         st.subheader("⚠️ Dnešní detekované anomálie")
         for _, let in anomalie.iterrows():
             st.error(f"""
             **🔴 {let['status']}**  
-            * **Let / Linka:** `{let['linka']}` | **Čas přeletu:** `{let['cas']}`  
+            * **Let:** `{let['linka']}` ({let['aerolinka']}) | **Čas:** `{let['cas']}`  
             * **Trasa v plánu:** `{let['trasa']}`  
-            * **Model letadla:** `{let['model']}`  
+            * **Model:** `{let['model']}`  
             * **Min. vzdálenost od Opavy:** `{let['vzdalenost']:.1f} km` | **Výška:** `{int(let['vyska'])} m` | **Rychlost:** `{int(let['rychlost'])} km/h`  
             """)
 
@@ -299,11 +324,11 @@ else:
     if len(zvlastni) > 0:
         with st.expander(f"🟡 Zobrazit zajímavé / vojenské lety ({len(zvlastni)})"):
             for _, let in zvlastni.iterrows():
-                st.warning(f"**{let['status']}** — Let: `{let['linka']}` v {let['cas']} ({let['model']}, trasa: {let['trasa']}, vzdálenost: {let['vzdalenost']:.1f} km)")
+                st.warning(f"**{let['status']}** — `{let['linka']}` ({let['aerolinka']}) v {let['cas']} ({let['model']}, trasa: {let['trasa']})")
 
     st.divider()
 
-    # 3. Filtry a samotná tabulka
+    # 3. Filtry a tabulka s novým sloupcem "Společnost"
     st.subheader(f"📋 Seznam všech přeletů dne ({vybrany_den})")
     filtr_stav = st.radio("Filtrovat podle stavu:", ["Vše", "Pouze 🔴 POZOR", "Pouze 🟡 INFO", "Pouze 🟢 OK"], horizontal=True)
 
@@ -316,12 +341,12 @@ else:
     else:
         df_zobrazit = df_den
 
-    # Pěkné zobrazení tabulky
     st.dataframe(
-        df_zobrazit[["cas", "linka", "trasa", "model", "vzdalenost", "vyska", "rychlost", "status"]],
+        df_zobrazit[["cas", "linka", "aerolinka", "trasa", "model", "vzdalenost", "vyska", "rychlost", "status"]],
         column_config={
             "cas": "Čas",
             "linka": "Linka",
+            "aerolinka": "Společnost / Provozovatel",
             "trasa": "Trasa (Odkud -> Kam)",
             "model": "Typ letadla",
             "vzdalenost": st.column_config.NumberColumn("Vzdálenost (km)", format="%.1f km"),
