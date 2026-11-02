@@ -1,135 +1,218 @@
 import re
 from io import StringIO
+import math
 import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-# =====================================================================
-# ODKAZY NA OBĚ GOOGLE TABULKY:
-# =====================================================================
-URL_PRACE = "https://docs.google.com/spreadsheets/d/1r2IVopVO7eS5hBs96fGUKek8n5gKz4H21zplz8g9obk/edit?gid=0#gid=0"
-URL_DOMOV = "https://docs.google.com/spreadsheets/d/1yJ8zTFR75XgCIWvaqhuH13XLEcsBhtVqQWsSql5mbgw/edit?gid=0#gid=0"
+# =================================================================
+# 1. ODKAZY NA TVÉ GOOGLE TABULKY
+# =================================================================
+URL_PRACE   = "https://docs.google.com/spreadsheets/d/1r2IVopVO7eS5hBs96fGUKek8n5gKz4H21zplz8g9obk/edit?gid=0#gid=0"
+URL_DOMOV   = "https://docs.google.com/spreadsheets/d/1yJ8zTFR75XgCIWvaqhuH13XLEcsBhtVqQWsSql5mbgw/edit?gid=0#gid=0"
+# 👇 SEM VLOŽ ODKAZ NA SVOU 3. TABULKU S LETADLY (mezi uvozovky):
+URL_LETADLA = "https://docs.google.com/spreadsheets/d/14ZaRb5FNlVZkkkV0TYVH0tJpFO9GjvJLeSm5kSN43Gk/edit?gid=0#gid=0" 
 
-st.set_page_config(
-    page_title="Meteostanice Opava",
-    page_icon="🌤️",
-    layout="wide",
-)
-
+st.set_page_config(page_title="Meteo & Radar Opava", page_icon="🌤️", layout="wide")
 
 def get_export_url(url: str) -> str:
     match_id = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
     match_gid = re.search(r"[#&?]gid=([0-9]+)", url)
-
     if match_id:
-        sheet_id = match_id.group(1)
-        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+        csv_url = f"https://docs.google.com/spreadsheets/d/{match_id.group(1)}/export?format=csv"
         if match_gid:
             csv_url += f"&gid={match_gid.group(1)}"
         return csv_url
     return url
 
-
-# =====================================================================
-# NAČÍTÁNÍ DAT - PRÁCE
-# =====================================================================
+# =================================================================
+# 2. NAČÍTÁNÍ METEO DAT (PRÁCE A DOMOV)
+# =================================================================
 @st.cache_data(ttl=120)
 def load_data_prace(url: str):
-    csv_url = get_export_url(url)
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    res = requests.get(csv_url, headers=headers)
-    
-    if res.status_code != 200 or "<html" in res.text.lower():
-        raise ValueError("Chyba při stahování tabulky z práce. Zkontroluj sdílení.")
-
-    df = pd.read_csv(StringIO(res.text), header=None, sep=None, engine="python")
-    df = df.dropna(how="all", axis=1)
-
-    if df.shape[1] > 7:
-        df = df.iloc[:, :7]
-    elif df.shape[1] < 7:
-        raise ValueError(f"Tabulka má jen {df.shape[1]} sloupců, očekává se 7.")
-
+    res = requests.get(get_export_url(url), headers={"User-Agent": "Mozilla/5.0"})
+    df = pd.read_csv(StringIO(res.text), header=None, sep=None, engine="python").dropna(how="all", axis=1).iloc[:, :7]
     df.columns = ["cas", "temp_in", "hum_in", "press_in", "temp_out", "hum_out", "press_out"]
     df["cas"] = pd.to_datetime(df["cas"], errors="coerce")
     df = df.dropna(subset=["cas"])
-
-    numeric_cols = ["temp_in", "hum_in", "press_in", "temp_out", "hum_out", "press_out"]
-    for col in numeric_cols:
-        df[col] = df[col].astype(str).str.replace(",", ".").str.strip()
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
+    for col in ["temp_in", "hum_in", "press_in", "temp_out", "hum_out", "press_out"]:
+        df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ".").str.strip(), errors="coerce")
     df = df.sort_values("cas").reset_index(drop=True)
-
     df["press_out"] = df["press_out"].replace(0, None).ffill()
-    df["hum_out"] = df["hum_out"].replace(0, None).ffill()
-    df["temp_out"] = df["temp_out"].replace(0, None).ffill()
-
-    for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
+    df["hum_out"]   = df["hum_out"].replace(0, None).ffill()
+    df["temp_out"]  = df["temp_out"].replace(0, None).ffill()
     df["mesic"] = df["cas"].dt.strftime("%Y-%m")
-    df["den"] = df["cas"].dt.strftime("%Y-%m-%d")
+    df["den"]   = df["cas"].dt.strftime("%Y-%m-%d")
     return df
 
-
-# =====================================================================
-# NAČÍTÁNÍ DAT - DOMOV
-# =====================================================================
 @st.cache_data(ttl=120)
 def load_data_domov(url: str):
-    csv_url = get_export_url(url)
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    res = requests.get(csv_url, headers=headers)
-    
-    if res.status_code != 200 or "<html" in res.text.lower():
-        raise ValueError("Chyba při stahování tabulky domova.")
-
-    df = pd.read_csv(StringIO(res.text), header=0, sep=None, engine="python")
-    df = df.dropna(how="all", axis=1)
-
+    res = requests.get(get_export_url(url), headers={"User-Agent": "Mozilla/5.0"})
+    df = pd.read_csv(StringIO(res.text), header=0, sep=None, engine="python").dropna(how="all", axis=1)
     df.columns = ["datum_raw", "cas_raw", "temp", "hum", "press", "pocasi"]
-
     df["datum_ciste"] = df["datum_raw"].astype(str).str.strip().apply(lambda x: x.split(" ")[-1] if " " in x else x)
-    df["cas_cisty"] = df["cas_raw"].astype(str).str.strip()
-
-    df["cas"] = pd.to_datetime(df["datum_ciste"] + " " + df["cas_cisty"], dayfirst=True, errors="coerce")
+    df["cas"] = pd.to_datetime(df["datum_ciste"] + " " + df["cas_raw"].astype(str).str.strip(), dayfirst=True, errors="coerce")
     df = df.dropna(subset=["cas"])
-
-    numeric_cols = ["temp", "hum", "press"]
-    for col in numeric_cols:
-        df[col] = df[col].astype(str).str.replace(",", ".").str.strip()
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
+    for col in ["temp", "hum", "press"]:
+        df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ".").str.strip(), errors="coerce")
     df = df.sort_values("cas").reset_index(drop=True)
     df["mesic"] = df["cas"].dt.strftime("%Y-%m")
-    df["den"] = df["cas"].dt.strftime("%Y-%m-%d")
+    df["den"]   = df["cas"].dt.strftime("%Y-%m-%d")
     return df
 
+# =================================================================
+# 3. NAČÍTÁNÍ A CHYTRÁ ANALÝZA LETADEL
+# =================================================================
+# Známá letiště pro výpočet odchylky od Opavy (cca 49.94° N, 17.91° E)
+AIRPORTS = {
+    "verona": (45.39, 10.88), "palermo": (38.17, 13.09), "rome": (41.80, 12.23), "milan": (45.63, 8.72),
+    "warsaw": (52.16, 20.96), "krakow": (50.07, 19.78), "gdańsk": (54.37, 18.46), "gdansk": (54.37, 18.46),
+    "berlin": (52.36, 13.50), "frankfurt am main": (50.03, 8.57), "frankfurt": (50.03, 8.57), "stuttgart": (48.68, 9.22), "hamburg": (53.63, 9.99),
+    "istanbul": (41.27, 28.72), "arnavutkoy, istanbul": (41.27, 28.72), "antalya": (36.89, 30.80), "bodrum": (37.25, 27.66), "gaziantep": (36.94, 37.47),
+    "copenhagen": (55.61, 12.65), "stockholm": (59.65, 17.91), "gothenburg": (57.66, 12.27), "helsinki": (60.31, 24.96), "riga": (56.92, 23.97),
+    "barcelona": (41.29, 2.08), "nice": (43.65, 7.21), "lyon": (45.72, 5.08), "birmingham": (52.45, -1.74), "brussels": (50.90, 4.48),
+    "larnaca": (34.87, 33.62), "beirut": (33.82, 35.48), "valletta": (35.85, 14.47), "budapest": (47.43, 19.25), "vienna": (48.11, 16.56)
+}
 
-# --- STAV NAVIGACE ---
-if "level" not in st.session_state:
-    st.session_state.level = "mesice"
-    st.session_state.vybrany_mesic = None
-    st.session_state.vybrany_den = None
+def geo_dist(lat1, lon1, lat2, lon2):
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    return 6371.0 * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
 
-# --- BOČNÍ PANEL S PŘEPÍNAČEM LOKALIT ---
-st.sidebar.title("🌤️ Meteostanice")
-lokalita = st.sidebar.radio("📍 Vyber lokalitu:", ["🏢 Práce (Jaktař)", "🏡 Domov (Holasická 6)"])
+def analyzuj_let(row):
+    callsign = str(row["linka"]).strip()
+    trasa = str(row["trasa"]).strip()
+    model = str(row["model"]).strip()
+    vyska = row["vyska"]
+    
+    # 1. Test na vojenský / neznámý let
+    if callsign.startswith("ID:") or trasa == "---" or trasa == "":
+        return "🟡 INFO: Bez letového plánu (Vojenský / Vládní)"
+    
+    # 2. Test na neznámý typ letadla
+    if model.lower() == "neznamy" or model == "":
+        return "🟡 INFO: Neznámý typ letounu"
+
+    # 3. Test na podezřelou trasu (např. Verona -> Palermo u Opavy)
+    if "->" in trasa:
+        parts = trasa.split("->")
+        orig = parts[0].strip().lower()
+        dest = parts[1].strip().lower()
+        if orig in AIRPORTS and dest in AIRPORTS:
+            o_lat, o_lon = AIRPORTS[orig]
+            d_lat, d_lon = AIRPORTS[dest]
+            d_direct = geo_dist(o_lat, o_lon, d_lat, d_lon)
+            d_via_opava = geo_dist(o_lat, o_lon, 49.94, 17.91) + geo_dist(49.94, 17.91, d_lat, d_lon)
+            # Pokud je oklika přes Opavu o víc než 40 % delší a současně aspoň o 300 km mimo
+            if d_via_opava > (d_direct * 1.40) and (d_via_opava - d_direct > 300):
+                return "🔴 POZOR: Poloha letadla neodpovídá trase!"
+
+    # 4. Test na nízký průlet (přiblížení na letiště Mošnov / Katowice)
+    if vyska < 3500 and vyska > 0:
+        return "🔵 INFO: Nízký průlet / Přiblížení"
+
+    return "🟢 OK"
+
+@st.cache_data(ttl=120)
+def load_data_letadla(url: str):
+    res = requests.get(get_export_url(url), headers={"User-Agent": "Mozilla/5.0"})
+    df = pd.read_csv(StringIO(res.text), header=0, sep=None, engine="python").dropna(how="all", axis=1)
+    df.columns = ["datum", "cas", "linka", "trasa", "model", "vzdalenost", "vyska", "rychlost"]
+    
+    # Úklid čísel s desetinnou čárkou
+    df["vzdalenost"] = pd.to_numeric(df["vzdalenost"].astype(str).str.replace(",", ".").str.strip(), errors="coerce")
+    df["vyska"]       = pd.to_numeric(df["vyska"].astype(str).str.replace(",", ".").str.strip(), errors="coerce").fillna(0)
+    df["rychlost"]    = pd.to_numeric(df["rychlost"].astype(str).str.replace(",", ".").str.strip(), errors="coerce").fillna(0)
+    
+    # Odstranění bezprostředních duplikátů (pojistka)
+    df = df.drop_duplicates(subset=["datum", "linka", "vzdalenost"], keep="first")
+    
+    # Analýza a přidání statusu
+    df["status"] = df.apply(analyzuj_let, axis=1)
+    return df
+
+# =================================================================
+# 4. SIDEBAR - PŘEPÍNÁNÍ MODULŮ
+# =================================================================
+st.sidebar.title("🧭 Ovládací panel")
+modul = st.sidebar.radio("📍 Vyber zobrazení:", [
+    "🏢 Práce (Jaktař) - Počasí", 
+    "🏡 Domov (Holasická 6) - Počasí",
+    "✈️ Letecký radar (Opava)"
+])
 
 if st.sidebar.button("🔄 Zkontrolovat nová data"):
     st.cache_data.clear()
     st.rerun()
 
-try:
-    if "Práce" in lokalita:
+# =================================================================
+# MODUL 1 & 2: METEOSTANICE (PRÁCE / DOMOV)
+# =================================================================
+if "Počasí" in modul:
+    if "level" not in st.session_state:
+        st.session_state.level = "mesice"
+        st.session_state.vybrany_mesic = None
+        st.session_state.vybrany_den = None
+
+    if "Práce" in modul:
         df = load_data_prace(URL_PRACE)
         posledni = df.iloc[-1]
         st.sidebar.success(f"Poslední měření:\n{posledni['cas'].strftime('%d.%m.%Y %H:%M')}")
         st.sidebar.metric("Teplota uvnitř", f"{posledni['temp_in']:.1f} °C")
         st.sidebar.metric("Teplota venku", f"{posledni['temp_out']:.1f} °C")
         st.sidebar.caption(f"Tlak: {posledni['press_in']:.1f} hPa | Vlhkost: {posledni['hum_in']:.0f}%")
+
+        if st.session_state.level == "mesice":
+            st.title("🏢 Práce (Jaktař) - Přehled měsíců")
+            mesicni = df.groupby("mesic").agg({"temp_in": "mean", "temp_out": "mean"}).reset_index().sort_values("mesic")
+            fig_m = go.Figure([
+                go.Bar(x=mesicni["mesic"], y=mesicni["temp_in"], name="Uvnitř (°C)", text=[f"{x:.1f}°" for x in mesicni["temp_in"]], textposition="auto", marker_color="#E64A19"),
+                go.Bar(x=mesicni["mesic"], y=mesicni["temp_out"], name="Venku (°C)", text=[f"{x:.1f}°" for x in mesicni["temp_out"]], textposition="auto", marker_color="#1976D2")
+            ])
+            fig_m.update_layout(barmode="group", xaxis_title="Měsíc", yaxis_title="Průměrná teplota (°C)")
+            st.plotly_chart(fig_m, use_container_width=True)
+            vybrany_m = st.selectbox("📅 Vyber měsíc:", ["-- Vyber měsíc --"] + mesicni["mesic"].tolist())
+            if vybrany_m != "-- Vyber měsíc --":
+                st.session_state.vybrany_mesic = vybrany_m
+                st.session_state.level = "dny"
+                st.rerun()
+
+        elif st.session_state.level == "dny":
+            mesic = st.session_state.vybrany_mesic
+            if st.button("⬅️ Zpět na přehled měsíců"): st.session_state.level = "mesice"; st.rerun()
+            st.title(f"🏢 Práce - Denní průměry v měsíci {mesic}")
+            denni = df[df["mesic"] == mesic].groupby("den").agg({"temp_in": "mean", "temp_out": "mean"}).reset_index().sort_values("den")
+            fig_d = go.Figure([
+                go.Bar(x=denni["den"], y=denni["temp_in"], name="Uvnitř (°C)", text=[f"{x:.1f}°" for x in denni["temp_in"]], textposition="auto", marker_color="#E64A19"),
+                go.Bar(x=denni["den"], y=denni["temp_out"], name="Venku (°C)", text=[f"{x:.1f}°" for x in denni["temp_out"]], textposition="auto", marker_color="#1976D2")
+            ])
+            fig_d.update_layout(barmode="group", xaxis_title="Den", yaxis_title="Průměrná teplota (°C)")
+            st.plotly_chart(fig_d, use_container_width=True)
+            vybrany_d = st.selectbox("📆 Vyber konkrétní den:", ["-- Vyber den --"] + denni["den"].tolist())
+            if vybrany_d != "-- Vyber den --":
+                st.session_state.vybrany_den = vybrany_d
+                st.session_state.level = "detail"
+                st.rerun()
+
+        elif st.session_state.level == "detail":
+            den = st.session_state.vybrany_den
+            if st.button("⬅️ Zpět na dny"): st.session_state.level = "dny"; st.rerun()
+            st.title(f"📈 Práce - Detailní průběh: {den}")
+            den_data = df[df["den"] == den].sort_values("cas")
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Teplota Uvnitř", f"{den_data['temp_in'].mean():.1f} °C", f"max {den_data['temp_in'].max():.1f} °C")
+            k2.metric("Teplota Venku", f"{den_data['temp_out'].mean():.1f} °C", f"max {den_data['temp_out'].max():.1f} °C")
+            k3.metric("Vlhkost", f"{den_data['hum_in'].mean():.0f}% / {den_data['hum_out'].mean():.0f}%")
+            k4.metric("Tlak", f"{den_data['press_in'].mean():.1f} / {den_data['press_out'].mean():.1f} hPa")
+            st.divider()
+            fig_temp = go.Figure([
+                go.Scatter(x=den_data["cas"], y=den_data["temp_in"], mode="lines+markers", name="Uvnitř (°C)", line=dict(color="#E64A19", width=2)),
+                go.Scatter(x=den_data["cas"], y=den_data["temp_out"], mode="lines+markers", name="Venku (°C)", line=dict(color="#1976D2", width=2))
+            ])
+            st.plotly_chart(fig_temp, use_container_width=True)
+
     else:
         df = load_data_domov(URL_DOMOV)
         posledni = df.iloc[-1]
@@ -137,221 +220,115 @@ try:
         st.sidebar.metric("Teplota venku", f"{posledni['temp']:.1f} °C")
         st.sidebar.metric("Stav počasí", f"{posledni['pocasi']}")
         st.sidebar.caption(f"Tlak: {posledni['press']:.1f} hPa | Vlhkost: {posledni['hum']:.0f}%")
-except Exception as e:
-    st.error(f"Chyba při načítání: {e}")
-    st.stop()
 
+        if st.session_state.level == "mesice":
+            st.title("🏡 Domov (Holasická 6) - Přehled měsíců")
+            mesicni = df.groupby("mesic").agg({"temp": "mean"}).reset_index().sort_values("mesic")
+            fig_m = go.Figure([go.Bar(x=mesicni["mesic"], y=mesicni["temp"], name="Teplota (°C)", text=[f"{x:.1f}°" for x in mesicni["temp"]], textposition="auto", marker_color="#2E7D32")])
+            st.plotly_chart(fig_m, use_container_width=True)
+            vybrany_m = st.selectbox("📅 Vyber měsíc:", ["-- Vyber měsíc --"] + mesicni["mesic"].tolist())
+            if vybrany_m != "-- Vyber měsíc --": st.session_state.vybrany_mesic = vybrany_m; st.session_state.level = "dny"; st.rerun()
 
-# =====================================================================
-# ZOBRAZENÍ: 🏢 PRÁCE (JAKTAŘ)
-# =====================================================================
-if "Práce" in lokalita:
+        elif st.session_state.level == "dny":
+            mesic = st.session_state.vybrany_mesic
+            if st.button("⬅️ Zpět na přehled měsíců"): st.session_state.level = "mesice"; st.rerun()
+            st.title(f"🏡 Domov - Denní průměry v měsíci {mesic}")
+            denni = df[df["mesic"] == mesic].groupby("den").agg({"temp": "mean"}).reset_index().sort_values("den")
+            fig_d = go.Figure([go.Bar(x=denni["den"], y=denni["temp"], name="Teplota (°C)", text=[f"{x:.1f}°" for x in denni["temp"]], textposition="auto", marker_color="#2E7D32")])
+            st.plotly_chart(fig_d, use_container_width=True)
+            vybrany_d = st.selectbox("📆 Vyber konkrétní den:", ["-- Vyber den --"] + denni["den"].tolist())
+            if vybrany_d != "-- Vyber den --": st.session_state.vybrany_den = vybrany_d; st.session_state.level = "detail"; st.rerun()
 
-    if st.session_state.level == "mesice":
-        st.title("🏢 Práce (Jaktař) - Přehled měsíců")
-        st.caption("Klikni na sloupec měsíce v grafu nebo ho vyber níže pro detail dnů:")
+        elif st.session_state.level == "detail":
+            den = st.session_state.vybrany_den
+            if st.button("⬅️ Zpět na dny"): st.session_state.level = "dny"; st.rerun()
+            st.title(f"📈 Domov - Detailní průběh: {den}")
+            den_data = df[df["den"] == den].sort_values("cas")
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Průměrná teplota", f"{den_data['temp'].mean():.1f} °C", f"max {den_data['temp'].max():.1f} °C")
+            k2.metric("Průměrná vlhkost", f"{den_data['hum'].mean():.0f}%")
+            k3.metric("Průměrný tlak", f"{den_data['press'].mean():.1f} hPa")
+            st.divider()
+            fig_temp = go.Figure([go.Scatter(x=den_data["cas"], y=den_data["temp"], mode="lines+markers", name="Teplota (°C)", line=dict(color="#2E7D32", width=2), text=den_data["pocasi"], hovertemplate="%{x|%H:%M}<br>Teplota: <b>%{y:.1f} °C</b><br>Stav: %{text}<extra></extra>")])
+            st.plotly_chart(fig_temp, use_container_width=True)
 
-        mesicni = df.groupby("mesic").agg({
-            "temp_in": "mean", "temp_out": "mean"
-        }).reset_index().sort_values("mesic")
-
-        fig_m = go.Figure()
-        fig_m.add_trace(go.Bar(
-            x=mesicni["mesic"], y=mesicni["temp_in"], name="Uvnitř (°C)",
-            text=[f"{float(x):.1f}°" for x in mesicni["temp_in"]], textposition="auto", marker_color="#E64A19"
-        ))
-        fig_m.add_trace(go.Bar(
-            x=mesicni["mesic"], y=mesicni["temp_out"], name="Venku (°C)",
-            text=[f"{float(x):.1f}°" for x in mesicni["temp_out"]], textposition="auto", marker_color="#1976D2"
-        ))
-        fig_m.update_layout(barmode="group", xaxis_title="Měsíc", yaxis_title="Průměrná teplota (°C)", clickmode="event+select")
-        
-        event_m = st.plotly_chart(fig_m, use_container_width=True, on_select="rerun", key="m_prace")
-        if event_m and event_m.get("selection") and event_m["selection"].get("points"):
-            kliknuty = event_m["selection"]["points"][0]["x"]
-            if kliknuty in mesicni["mesic"].values:
-                st.session_state.vybrany_mesic = kliknuty
-                st.session_state.level = "dny"
-                st.rerun()
-
-        vybrany_m = st.selectbox("📅 Vyber měsíc ze seznamu:", ["-- Vyber měsíc --"] + mesicni["mesic"].tolist())
-        if vybrany_m != "-- Vyber měsíc --":
-            st.session_state.vybrany_mesic = vybrany_m
-            st.session_state.level = "dny"
-            st.rerun()
-
-    elif st.session_state.level == "dny":
-        mesic = st.session_state.vybrany_mesic
-        if st.button("⬅️ Zpět na přehled měsíců"):
-            st.session_state.level = "mesice"
-            st.rerun()
-
-        st.title(f"🏢 Práce - Denní průměry v měsíci {mesic}")
-        df_mesic = df[df["mesic"] == mesic]
-        denni = df_mesic.groupby("den").agg({"temp_in": "mean", "temp_out": "mean"}).reset_index().sort_values("den")
-
-        fig_d = go.Figure()
-        fig_d.add_trace(go.Bar(
-            x=denni["den"], y=denni["temp_in"], name="Uvnitř (°C)",
-            text=[f"{float(x):.1f}°" for x in denni["temp_in"]], textposition="auto", marker_color="#E64A19"
-        ))
-        fig_d.add_trace(go.Bar(
-            x=denni["den"], y=denni["temp_out"], name="Venku (°C)",
-            text=[f"{float(x):.1f}°" for x in denni["temp_out"]], textposition="auto", marker_color="#1976D2"
-        ))
-        fig_d.update_layout(barmode="group", xaxis_title="Den", yaxis_title="Průměrná teplota (°C)", clickmode="event+select")
-        
-        event_d = st.plotly_chart(fig_d, use_container_width=True, on_select="rerun", key="d_prace")
-        if event_d and event_d.get("selection") and event_d["selection"].get("points"):
-            kliknuty = event_d["selection"]["points"][0]["x"]
-            if kliknuty in denni["den"].values:
-                st.session_state.vybrany_den = kliknuty
-                st.session_state.level = "detail"
-                st.rerun()
-
-        vybrany_d = st.selectbox("📆 Vyber konkrétní den pro detailní průběh:", ["-- Vyber den --"] + denni["den"].tolist())
-        if vybrany_d != "-- Vyber den --":
-            st.session_state.vybrany_den = vybrany_d
-            st.session_state.level = "detail"
-            st.rerun()
-
-    elif st.session_state.level == "detail":
-        den = st.session_state.vybrany_den
-        if st.button("⬅️ Zpět na dny"):
-            st.session_state.level = "dny"
-            st.rerun()
-
-        st.title(f"📈 Práce - Detailní průběh: {den}")
-        den_data = df[df["den"] == den].sort_values("cas")
-
-        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-        kpi1.metric("Teplota Uvnitř", f"{den_data['temp_in'].mean():.1f} °C", f"max {den_data['temp_in'].max():.1f} °C")
-        kpi2.metric("Teplota Venku", f"{den_data['temp_out'].mean():.1f} °C", f"max {den_data['temp_out'].max():.1f} °C")
-        kpi3.metric("Vlhkost (Uvnitř / Venku)", f"{den_data['hum_in'].mean():.0f}% / {den_data['hum_out'].mean():.0f}%")
-        kpi4.metric("Tlak (Uvnitř / Venku)", f"{den_data['press_in'].mean():.1f} / {den_data['press_out'].mean():.1f} hPa")
-
-        st.divider()
-
-        # Teploty
-        fig_temp = go.Figure()
-        fig_temp.add_trace(go.Scatter(x=den_data["cas"], y=den_data["temp_in"], mode="lines+markers", name="Uvnitř (°C)", line=dict(color="#E64A19", width=2)))
-        fig_temp.add_trace(go.Scatter(x=den_data["cas"], y=den_data["temp_out"], mode="lines+markers", name="Venku (°C)", line=dict(color="#1976D2", width=2)))
-        fig_temp.update_layout(title="Průběh teploty v čase", xaxis_title="Čas", yaxis_title="Teplota (°C)", hovermode="x unified")
-        st.plotly_chart(fig_temp, use_container_width=True)
-
-        # Vlhkost a tlak (🔥 OPRAVENO: hum_in místo hum 🔥)
-        c1, c2 = st.columns(2)
-        with c1:
-            fig_hum = go.Figure()
-            fig_hum.add_trace(go.Scatter(x=den_data["cas"], y=den_data["hum_in"], name="Uvnitř (%)", line=dict(color="#00ACC1")))
-            fig_hum.add_trace(go.Scatter(x=den_data["cas"], y=den_data["hum_out"], name="Venku (%)", line=dict(color="#43A047")))
-            fig_hum.update_layout(title="Průběh vlhkosti (%)", xaxis_title="Čas", yaxis_title="Vlhkost (%)", hovermode="x unified")
-            st.plotly_chart(fig_hum, use_container_width=True)
-        with c2:
-            fig_press = go.Figure()
-            fig_press.add_trace(go.Scatter(x=den_data["cas"], y=den_data["press_in"], name="Uvnitř (hPa)", line=dict(color="#FB8C00")))
-            fig_press.add_trace(go.Scatter(x=den_data["cas"], y=den_data["press_out"], name="Venku (hPa)", line=dict(color="#8E24AA")))
-            fig_press.update_layout(title="Průběh tlaku (hPa)", xaxis_title="Čas", yaxis_title="Tlak (hPa)", hovermode="x unified")
-            st.plotly_chart(fig_press, use_container_width=True)
-
-
-# =====================================================================
-# ZOBRAZENÍ: 🏡 DOMOV (HOLASICKÁ 6)
-# =====================================================================
+# =================================================================
+# MODUL 3: LETECKÝ RADAR (NOVÉ!)
+# =================================================================
 else:
-    if st.session_state.level == "mesice":
-        st.title("🏡 Domov (Holasická 6) - Přehled měsíců")
-        st.caption("Klikni na sloupec měsíce v grafu nebo ho vyber níže pro detail dnů:")
+    st.title("✈️ Letecký radar (Vzdušný prostor Opava)")
+    try:
+        df_air = load_data_letadla(URL_LETADLA)
+    except Exception as e:
+        st.error(f"Nepodařilo se načíst data letadel. Zkontroluj odkaz na tabulku v kódu. Chyba: {e}")
+        st.stop()
 
-        mesicni = df.groupby("mesic").agg({"temp": "mean"}).reset_index().sort_values("mesic")
+    dny_v_tabulce = df_air["datum"].unique().tolist()
+    vybrany_den = st.sidebar.selectbox("📅 Vyber den sledování:", dny_v_tabulce, index=len(dny_v_tabulce)-1)
 
-        fig_m = go.Figure()
-        fig_m.add_trace(go.Bar(
-            x=mesicni["mesic"], y=mesicni["temp"], name="Teplota (°C)",
-            text=[f"{float(x):.1f}°" for x in mesicni["temp"]], textposition="auto", marker_color="#2E7D32"
-        ))
-        fig_m.update_layout(xaxis_title="Měsíc", yaxis_title="Průměrná teplota (°C)", clickmode="event+select")
-        
-        event_m = st.plotly_chart(fig_m, use_container_width=True, on_select="rerun", key="m_doma")
-        if event_m and event_m.get("selection") and event_m["selection"].get("points"):
-            kliknuty = event_m["selection"]["points"][0]["x"]
-            if kliknuty in mesicni["mesic"].values:
-                st.session_state.vybrany_mesic = kliknuty
-                st.session_state.level = "dny"
-                st.rerun()
+    df_den = df_air[df_air["datum"] == vybrany_den].copy()
 
-        vybrany_m = st.selectbox("📅 Vyber měsíc ze seznamu:", ["-- Vyber měsíc --"] + mesicni["mesic"].tolist())
-        if vybrany_m != "-- Vyber měsíc --":
-            st.session_state.vybrany_mesic = vybrany_m
-            st.session_state.level = "dny"
-            st.rerun()
+    # 1. Metriky v horním panelu
+    c1, c2, c3, c4 = st.columns(4)
+    celkem = len(df_den)
+    pocet_pozor = len(df_den[df_den["status"].str.contains("POZOR")])
+    pocet_info  = len(df_den[df_den["status"].str.contains("INFO")])
+    pocet_ok    = len(df_den[df_den["status"].str.contains("OK")])
 
-    elif st.session_state.level == "dny":
-        mesic = st.session_state.vybrany_mesic
-        if st.button("⬅️ Zpět na přehled měsíců"):
-            st.session_state.level = "mesice"
-            st.rerun()
+    c1.metric("Celkem přeletů", celkem)
+    c2.metric("🟢 Běžné tranzity", pocet_ok)
+    c3.metric("🟡 Zvláštní lety (INFO)", pocet_info)
+    c4.metric("🔴 Podezřelé lety (POZOR)", pocet_pozor)
 
-        st.title(f"🏡 Domov - Denní průměry v měsíci {mesic}")
-        df_mesic = df[df["mesic"] == mesic]
-        denni = df_mesic.groupby("den").agg({"temp": "mean"}).reset_index().sort_values("den")
+    st.divider()
 
-        fig_d = go.Figure()
-        fig_d.add_trace(go.Bar(
-            x=denni["den"], y=denni["temp"], name="Teplota (°C)",
-            text=[f"{float(x):.1f}°" for x in denni["temp"]], textposition="auto", marker_color="#2E7D32"
-        ))
-        fig_d.update_layout(xaxis_title="Den", yaxis_title="Průměrná teplota (°C)", clickmode="event+select")
-        
-        event_d = st.plotly_chart(fig_d, use_container_width=True, on_select="rerun", key="d_doma")
-        if event_d and event_d.get("selection") and event_d["selection"].get("points"):
-            kliknuty = event_d["selection"]["points"][0]["x"]
-            if kliknuty in denni["den"].values:
-                st.session_state.vybrany_den = kliknuty
-                st.session_state.level = "detail"
-                st.rerun()
+    # 2. Vytahovák na anomálie (Karty nahoru)
+    anomalie = df_den[df_den["status"].str.contains("POZOR")]
+    if len(anomalie) > 0:
+        st.subheader("⚠️ Dnešní detekované anomálie")
+        for _, let in anomalie.iterrows():
+            st.error(f"""
+            **🔴 {let['status']}**  
+            * **Let / Linka:** `{let['linka']}` | **Čas přeletu:** `{let['cas']}`  
+            * **Trasa v plánu:** `{let['trasa']}`  
+            * **Model letadla:** `{let['model']}`  
+            * **Min. vzdálenost od Opavy:** `{let['vzdalenost']:.1f} km` | **Výška:** `{int(let['vyska'])} m` | **Rychlost:** `{int(let['rychlost'])} km/h`  
+            """)
 
-        vybrany_d = st.selectbox("📆 Vyber konkrétní den pro detailní průběh:", ["-- Vyber den --"] + denni["den"].tolist())
-        if vybrany_d != "-- Vyber den --":
-            st.session_state.vybrany_den = vybrany_d
-            st.session_state.level = "detail"
-            st.rerun()
+    zvlastni = df_den[df_den["status"].str.contains("INFO")]
+    if len(zvlastni) > 0:
+        with st.expander(f"🟡 Zobrazit zajímavé / vojenské lety ({len(zvlastni)})"):
+            for _, let in zvlastni.iterrows():
+                st.warning(f"**{let['status']}** — Let: `{let['linka']}` v {let['cas']} ({let['model']}, trasa: {let['trasa']}, vzdálenost: {let['vzdalenost']:.1f} km)")
 
-    elif st.session_state.level == "detail":
-        den = st.session_state.vybrany_den
-        if st.button("⬅️ Zpět na dny"):
-            st.session_state.level = "dny"
-            st.rerun()
+    st.divider()
 
-        st.title(f"📈 Domov - Detailní průběh: {den}")
-        den_data = df[df["den"] == den].sort_values("cas")
+    # 3. Filtry a samotná tabulka
+    st.subheader(f"📋 Seznam všech přeletů dne ({vybrany_den})")
+    filtr_stav = st.radio("Filtrovat podle stavu:", ["Vše", "Pouze 🔴 POZOR", "Pouze 🟡 INFO", "Pouze 🟢 OK"], horizontal=True)
 
-        kpi1, kpi2, kpi3 = st.columns(3)
-        kpi1.metric("Průměrná teplota", f"{den_data['temp'].mean():.1f} °C", f"max {den_data['temp'].max():.1f} °C")
-        kpi2.metric("Průměrná vlhkost", f"{den_data['hum'].mean():.0f}%")
-        kpi3.metric("Průměrný tlak", f"{den_data['press'].mean():.1f} hPa")
+    if filtr_stav == "Pouze 🔴 POZOR":
+        df_zobrazit = df_den[df_den["status"].str.contains("POZOR")]
+    elif filtr_stav == "Pouze 🟡 INFO":
+        df_zobrazit = df_den[df_den["status"].str.contains("INFO")]
+    elif filtr_stav == "Pouze 🟢 OK":
+        df_zobrazit = df_den[df_den["status"].str.contains("OK")]
+    else:
+        df_zobrazit = df_den
 
-        st.divider()
-
-        fig_temp = go.Figure()
-        fig_temp.add_trace(go.Scatter(
-            x=den_data["cas"], y=den_data["temp"],
-            mode="lines+markers", name="Teplota (°C)",
-            line=dict(color="#2E7D32", width=2),
-            text=den_data["pocasi"],
-            hovertemplate="%{x|%H:%M}<br>Teplota: <b>%{y:.1f} °C</b><br>Stav: %{text}<extra></extra>"
-        ))
-        fig_temp.update_layout(title="Průběh teploty na Holasické", xaxis_title="Čas", yaxis_title="Teplota (°C)", hovermode="x unified")
-        st.plotly_chart(fig_temp, use_container_width=True)
-
-        c1, c2 = st.columns(2)
-        with c1:
-            fig_hum = go.Figure()
-            fig_hum.add_trace(go.Scatter(x=den_data["cas"], y=den_data["hum"], name="Vlhkost (%)", line=dict(color="#0288D1")))
-            fig_hum.update_layout(title="Průběh vlhkosti (%)", xaxis_title="Čas", yaxis_title="Vlhkost (%)", hovermode="x unified")
-            st.plotly_chart(fig_hum, use_container_width=True)
-        with c2:
-            fig_press = go.Figure()
-            fig_press.add_trace(go.Scatter(x=den_data["cas"], y=den_data["press"], name="Tlak (hPa)", line=dict(color="#7B1FA2")))
-            fig_press.update_layout(title="Průběh tlaku (hPa)", xaxis_title="Čas", yaxis_title="Tlak (hPa)", hovermode="x unified")
-            st.plotly_chart(fig_press, use_container_width=True)
+    # Pěkné zobrazení tabulky
+    st.dataframe(
+        df_zobrazit[["cas", "linka", "trasa", "model", "vzdalenost", "vyska", "rychlost", "status"]],
+        column_config={
+            "cas": "Čas",
+            "linka": "Linka",
+            "trasa": "Trasa (Odkud -> Kam)",
+            "model": "Typ letadla",
+            "vzdalenost": st.column_config.NumberColumn("Vzdálenost (km)", format="%.1f km"),
+            "vyska": st.column_config.NumberColumn("Výška (m)", format="%d m"),
+            "rychlost": st.column_config.NumberColumn("Rychlost (km/h)", format="%d km/h"),
+            "status": "Vyhodnocení"
+        },
+        use_container_width=True,
+        hide_index=True
+    )
