@@ -153,8 +153,10 @@ def load_data_letadla(url: str):
     df["vyska"]       = pd.to_numeric(df["vyska"].astype(str).str.replace(",", ".").str.strip(), errors="coerce").fillna(0)
     df["rychlost"]    = pd.to_numeric(df["rychlost"].astype(str).str.replace(",", ".").str.strip(), errors="coerce").fillna(0)
     
+# Převod na skutečný čas, aby 5:52 bylo před 10:00
+    df["cas_dt"] = pd.to_datetime(df["datum"] + " " + df["cas"], dayfirst=True, errors="coerce")
     df = df.sort_values("vzdalenost").drop_duplicates(subset=["datum", "linka"], keep="first")
-    df = df.sort_values("cas").reset_index(drop=True)
+    df = df.sort_values("cas_dt").reset_index(drop=True)
     df["aerolinka"] = df["linka"].apply(urci_aerolinku)
     df["status"] = df.apply(analyzuj_let, axis=1)
     return df
